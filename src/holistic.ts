@@ -66,10 +66,28 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
     const imageTexture = new THREE.CanvasTexture(canvasElement);
 
+    const createLandmarksArray = (length: number) => new Array(length * 2).fill(0);
+
+    const initialPoseLandmarks = createLandmarksArray(33);
+    const initialFaceLandmarks = createLandmarksArray(478);
+    const initialHandLandmarks = createLandmarksArray(21);
+
     const uniforms = {
         time: { value: 1.0 },
         image: { value: imageTexture },
         segmentationMask: { value: imageTexture },
+        poseLandmarks: {
+            value: initialPoseLandmarks,
+        },
+        faceLandmarks: {
+            value: initialFaceLandmarks,
+        },
+        leftHandLandmarks: {
+            value: initialHandLandmarks,
+        },
+        rightHandLandmarks: {
+            value: initialHandLandmarks,
+        },
     };
 
     const material = new THREE.ShaderMaterial({
@@ -92,8 +110,10 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
     window.addEventListener("resize", onWindowResize);
 
+    const prepareLandmarks = (landmarks: mpHolistic.NormalizedLandmarkList) => 
+        landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y], []);
+
     return (results: mpHolistic.Results) => {
-        console.log(results);
         document.body.classList.add("loaded");
 
         // Remove landmarks we don't want to draw.
@@ -102,11 +122,33 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
         // Update the frame rate.
         // fpsControl.tick();
 
-        // @todo copy landmarks into buffer
-
         uniforms.image.value = new THREE.CanvasTexture(results.image);
 
         uniforms.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
+
+        if (results.poseLandmarks) {
+            uniforms.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
+        } else {
+            uniforms.poseLandmarks.value = initialPoseLandmarks;
+        }
+
+        if (results.faceLandmarks) {
+            uniforms.faceLandmarks.value = prepareLandmarks(results.faceLandmarks);
+        } else {
+            uniforms.faceLandmarks.value = initialFaceLandmarks;
+        }
+
+        if (results.leftHandLandmarks) {
+            uniforms.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
+        } else {
+            uniforms.leftHandLandmarks.value = initialHandLandmarks;
+        }
+
+        if (results.rightHandLandmarks) {
+            uniforms.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
+        } else {
+            uniforms.rightHandLandmarks.value = initialHandLandmarks;
+        }
 
         uniforms.time.value = performance.now() / 1000;
 
