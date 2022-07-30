@@ -1,38 +1,32 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useLayoutEffect, useRef } from "react";
+
+import { startHolisticDetector } from "./holistic";
+
 import "./App.css";
 
-function App() {
-    const [count, setCount] = useState(0);
+export default function App() {
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+    useLayoutEffect(() => {
+        if (!videoRef.current || !canvasRef.current) {
+            return;
+        }
+
+        startHolisticDetector(videoRef.current, canvasRef.current);
+    }, [videoRef.current, canvasRef.current]);
 
     return (
-        <div className="App">
-            <div>
-                <a href="https://vitejs.dev" target="_blank">
-                    <img src="/vite.svg" className="logo" alt="Vite logo" />
-                </a>
-                <a href="https://reactjs.org" target="_blank">
-                    <img
-                        src={reactLogo}
-                        className="logo react"
-                        alt="React logo"
-                    />
-                </a>
+        <div className="container">
+            <video className="input_video" ref={videoRef} />
+            <div className="canvas-container">
+                <canvas
+                    className="output_canvas"
+                    width="1280px"
+                    height="720px"
+                    ref={canvasRef}
+                />
             </div>
-            <h1>Vite + React</h1>
-            <div className="card">
-                <button onClick={() => setCount((count) => count + 1)}>
-                    count is {count}
-                </button>
-                <p>
-                    Edit <code>src/App.tsx</code> and save to test HMR
-                </p>
-            </div>
-            <p className="read-the-docs">
-                Click on the Vite and React logos to learn more
-            </p>
         </div>
     );
 }
-
-export default App;
