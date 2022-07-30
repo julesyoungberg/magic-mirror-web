@@ -1,8 +1,11 @@
 // based on: https://codepen.io/mediapipe/pen/LYRRYEw
-
 import * as cameraUtils from "@mediapipe/camera_utils";
 import * as drawingUtils from "@mediapipe/drawing_utils";
 import * as mpHolistic from "@mediapipe/holistic";
+import * as THREE from "three";
+
+import fragmentShader from "./glsl/main.frag";
+import vertexShader from "./glsl/main.vert";
 
 const config = {
     locateFile: (file: string) =>
@@ -54,15 +57,71 @@ function connect(
     }
 }
 
+async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    const scene = new THREE.Scene();
+
+    const geometry = new THREE.PlaneGeometry(2, 2);
+
+    const imageTexture = new THREE.CanvasTexture(canvasElement);
+
+    const uniforms = {
+        time: { value: 1.0 },
+        image: { value: imageTexture },
+        segmentationMask: { value: imageTexture },
+    };
+
+    const material = new THREE.ShaderMaterial({
+        uniforms: uniforms,
+        vertexShader,
+        fragmentShader,
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    const renderer = new THREE.WebGLRenderer({ canvas: canvasElement });
+    // renderer.setPixelRatio(window.devicePixelRatio);
+
+    function onWindowResize() {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    onWindowResize();
+
+    window.addEventListener("resize", onWindowResize);
+
+    return (results: mpHolistic.Results) => {
+        console.log(results);
+        document.body.classList.add("loaded");
+
+        // Remove landmarks we don't want to draw.
+        removeLandmarks(results);
+
+        // Update the frame rate.
+        // fpsControl.tick();
+
+        // @todo copy landmarks into buffer
+
+        uniforms.image.value = new THREE.CanvasTexture(results.image);
+
+        uniforms.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
+
+        uniforms.time.value = performance.now() / 1000;
+
+        renderer.render(scene, camera);
+    };
+}
+
 let activeEffect = "mask";
-function makeOnResults(canvasElement: HTMLCanvasElement) {
+function makeOnResults2D(canvasElement: HTMLCanvasElement) {
     const canvasCtx = canvasElement.getContext("2d");
     if (!canvasCtx) {
         throw new Error("unavle to get drawing context");
     }
 
     return (results: mpHolistic.Results) => {
-        // Hide the spinner.
         document.body.classList.add("loaded");
 
         // Remove landmarks we don't want to draw.
@@ -89,11 +148,21 @@ function makeOnResults(canvasElement: HTMLCanvasElement) {
                 canvasCtx.globalCompositeOperation = "source-in";
                 // This can be a color or a texture or whatever...
                 canvasCtx.fillStyle = "#00FF007F";
-                canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+                canvasCtx.fillRect(
+                    0,
+                    0,
+                    canvasElement.width,
+                    canvasElement.height
+                );
             } else {
                 canvasCtx.globalCompositeOperation = "source-out";
                 canvasCtx.fillStyle = "#0000FF7F";
-                canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+                canvasCtx.fillRect(
+                    0,
+                    0,
+                    canvasElement.width,
+                    canvasElement.height
+                );
             }
 
             // Only overwrite missing pixels.
@@ -136,7 +205,9 @@ function makeOnResults(canvasElement: HTMLCanvasElement) {
                 canvasCtx.strokeStyle = "white";
                 connect(canvasCtx, [
                     [
-                        results.poseLandmarks[mpHolistic.POSE_LANDMARKS.LEFT_ELBOW],
+                        results.poseLandmarks[
+                            mpHolistic.POSE_LANDMARKS.LEFT_ELBOW
+                        ],
                         results.leftHandLandmarks[0],
                     ],
                 ]);
@@ -243,7 +314,10 @@ function makeOnResults(canvasElement: HTMLCanvasElement) {
     };
 }
 
-export function startHolisticDetector(videoElement: HTMLVideoElement, canvasElement: HTMLCanvasElement) {
+export async function startHolisticDetector(
+    videoElement: HTMLVideoElement,
+    canvasElement: HTMLCanvasElement
+) {
     const holistic = new mpHolistic.Holistic(config);
     holistic.setOptions({
         modelComplexity: 1,
@@ -253,18 +327,18 @@ export function startHolisticDetector(videoElement: HTMLVideoElement, canvasElem
         smoothSegmentation: true,
         refineFaceLandmarks: true,
         minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
+        minTrackingConfidence: 0.5,
     });
 
-    holistic.onResults(makeOnResults(canvasElement));
+    holistic.onResults(await makeOnResults3D(canvasElement));
 
     const camera = new cameraUtils.Camera(videoElement, {
         onFrame: async () => {
             await holistic.send({ image: videoElement });
         },
         width: 1280,
-        height: 720
+        height: 720,
     });
-    
+
     camera.start();
 }
