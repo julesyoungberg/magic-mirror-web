@@ -5,10 +5,10 @@ in vec2 st;
 uniform float time;
 uniform sampler2D image;
 uniform sampler2D segmentationMask;
-uniform vec2 poseLandmarks[14];
-uniform vec2 faceLandmarks[478];
-uniform vec2 leftHandLandmarks[21];
-uniform vec2 rightHandLandmarks[21];
+uniform vec3 poseLandmarks[14];
+uniform vec3 faceLandmarks[478];
+uniform vec3 leftHandLandmarks[21];
+uniform vec3 rightHandLandmarks[21];
 
 #define LEFT_SHOULDER 0
 #define RIGHT_SHOULDER 1
@@ -25,16 +25,16 @@ uniform vec2 rightHandLandmarks[21];
 #define LEFT_FOOT 12
 #define RIGHT_FOOT 13
 
-vec3 landmark(vec2 landmark) {
+vec3 landmark(vec3 landmark) {
     vec3 color = vec3(0.0);
 
-    float dist = distance(st, landmark);
+    float dist = distance(st, landmark.xy);
 
-    return vec3(smoothstep(0.002, 0.0, dist));
+    return vec3(smoothstep(0.002, 0.0, dist)) * landmark.z;
 }
 
-float edges() {
-    const vec2 resolution = vec2(1280.0, 720.0);
+float maskEdges() {
+    // const vec2 resolution = vec2(1280.0, 720.0);
     vec2 stp = vec2(0.005); // 1.0 / resolution;
 
     float center = texture2D(segmentationMask, st).r;
@@ -47,9 +47,43 @@ float edges() {
     float bottom = texture2D(segmentationMask, st - stp * vec2(0.0, 1.0)).r;
     float bottomLeft = texture2D(segmentationMask, st - stp).r;
 
-    return (abs(center - left) + abs(center - topLeft) + abs(center - top) 
+    float shade = (abs(center - left) + abs(center - topLeft) + abs(center - top) 
         + abs(center - topRight) + abs(center - right) + abs(center - bottomRight)
         + abs(center - bottom) + abs(center - bottomLeft)) / 8.0;
+
+    return smoothstep(0.1, 0.0, shade);
+}
+
+float toGray(vec3 c) {
+    return (c.r + c.g + c.b) / 3.0;
+}
+
+vec3 selfieEdges() {
+    float mask = texture2D(segmentationMask, st).r;
+    vec3 color = texture2D(image, st).rgb;
+
+    if (mask < 0.5) {
+        return color;
+    }
+
+    // const vec2 resolution = vec2(1280.0, 720.0);
+    vec2 stp = vec2(0.001); // 1.0 / resolution;
+
+    float center = toGray(color);
+    float left = toGray(texture2D(image, st - stp * vec2(1.0, 0.0)).rgb);
+    float topLeft = toGray(texture2D(image, st + stp * vec2(-1.0, 1.0)).rgb);
+    float top = toGray(texture2D(image, st + stp * vec2(0.0, 1.0)).rgb);
+    float topRight = toGray(texture2D(image, st + stp).rgb);
+    float right = toGray(texture2D(image, st + stp * vec2(1.0, 0.0)).rgb);
+    float bottomRight = toGray(texture2D(image, st + stp * vec2(1.0, -1.0)).rgb);
+    float bottom = toGray(texture2D(image, st - stp * vec2(0.0, 1.0)).rgb);
+    float bottomLeft = toGray(texture2D(image, st - stp).rgb);
+
+    float shade = (abs(center - left) + abs(center - topLeft) + abs(center - top) 
+        + abs(center - topRight) + abs(center - right) + abs(center - bottomRight)
+        + abs(center - bottom) + abs(center - bottomLeft)) / 8.0;
+    
+    return vec3(smoothstep(0.05, 0.0, shade));
 }
 
 float lineDist(vec2 p, vec2 a, vec2 b) {
@@ -59,13 +93,13 @@ float lineDist(vec2 p, vec2 a, vec2 b) {
     return length(pa - ba * t);
 }
 
-float line(vec2 a, vec2 b) {
-    float d = lineDist(st, a, b);
+float line(vec3 a, vec3 b) {
+    float d = lineDist(st, a.xy, b.xy);
     float m = smoothstep(0.005, 0.0, d);
     return m;
 }
 
-vec3 hand(vec2 handLandmarks[21]) {
+vec3 hand(vec3 handLandmarks[21]) {
     vec3 color = vec3(0.0);
 
     // thumnb
@@ -273,65 +307,65 @@ vec3 rightEyebrow() {
 void main()	{
     vec3 color = vec3(0.0);
     
-    // color = texture2D(image, st).rgb;
-    // color.g += texture2D(segmentationMask, st).r * 0.5;
-    color = texture2D(image, st).rgb; // * texture2D(segmentationMask, st).r;
+    // // color = texture2D(image, st).rgb;
+    // // color.g += texture2D(segmentationMask, st).r * 0.5;
+    // color = texture2D(image, st).rgb; // * texture2D(segmentationMask, st).r;
 
-    // for (int i = 0; i < 478; i++) {
-    //     color += landmark(faceLandmarks[i]);
+    // // for (int i = 0; i < 478; i++) {
+    // //     color += landmark(faceLandmarks[i]);
+    // // }
+
+    // // for (int i = 0; i < 21; i++) {
+    // //     color += landmark(leftHandLandmarks[i]);
+    // //     color += landmark(rightHandLandmarks[i]);
+    // // }
+
+    // color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[RIGHT_SHOULDER]);
+
+    // color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[LEFT_ELBOW]);
+
+    // color += line(poseLandmarks[RIGHT_SHOULDER], poseLandmarks[RIGHT_ELBOW]);
+
+    // if (leftHandLandmarks[0].x > 0.0 && leftHandLandmarks[0].y > 0.0) {
+    //     color += line(poseLandmarks[LEFT_ELBOW], leftHandLandmarks[0]);
+    //     color += hand(leftHandLandmarks);
     // }
 
-    // for (int i = 0; i < 21; i++) {
-    //     color += landmark(leftHandLandmarks[i]);
-    //     color += landmark(rightHandLandmarks[i]);
+    // if (rightHandLandmarks[0].x > 0.0 && rightHandLandmarks[0].y > 0.0) {
+    //     color += line(poseLandmarks[RIGHT_ELBOW], rightHandLandmarks[0]);
+    //     color += hand(rightHandLandmarks);
     // }
 
-    color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[RIGHT_SHOULDER]);
+    // color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[LEFT_HIP]);
 
-    color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[LEFT_ELBOW]);
+    // color += line(poseLandmarks[RIGHT_SHOULDER], poseLandmarks[RIGHT_HIP]);
 
-    color += line(poseLandmarks[RIGHT_SHOULDER], poseLandmarks[RIGHT_ELBOW]);
+    // color += line(poseLandmarks[LEFT_HIP], poseLandmarks[RIGHT_HIP]);
 
-    if (leftHandLandmarks[0].x > 0.0 && leftHandLandmarks[0].y > 0.0) {
-        color += line(poseLandmarks[LEFT_ELBOW], leftHandLandmarks[0]);
-        color += hand(leftHandLandmarks);
-    }
+    // color += line(poseLandmarks[LEFT_HIP], poseLandmarks[LEFT_KNEE]);
 
-    if (rightHandLandmarks[0].x > 0.0 && rightHandLandmarks[0].y > 0.0) {
-        color += line(poseLandmarks[RIGHT_ELBOW], rightHandLandmarks[0]);
-        color += hand(rightHandLandmarks);
-    }
+    // color += line(poseLandmarks[RIGHT_HIP], poseLandmarks[RIGHT_KNEE]);
 
-    color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[LEFT_HIP]);
+    // color += line(poseLandmarks[LEFT_KNEE], poseLandmarks[LEFT_ANKLE]);
 
-    color += line(poseLandmarks[RIGHT_SHOULDER], poseLandmarks[RIGHT_HIP]);
+    // color += line(poseLandmarks[RIGHT_KNEE], poseLandmarks[RIGHT_ANKLE]);
 
-    color += line(poseLandmarks[LEFT_HIP], poseLandmarks[RIGHT_HIP]);
+    // color += line(poseLandmarks[LEFT_ANKLE], poseLandmarks[LEFT_HEEL]);
 
-    color += line(poseLandmarks[LEFT_HIP], poseLandmarks[LEFT_KNEE]);
+    // color += line(poseLandmarks[RIGHT_ANKLE], poseLandmarks[RIGHT_HEEL]);
 
-    color += line(poseLandmarks[RIGHT_HIP], poseLandmarks[RIGHT_KNEE]);
+    // color += line(poseLandmarks[LEFT_HEEL], poseLandmarks[LEFT_FOOT]);
 
-    color += line(poseLandmarks[LEFT_KNEE], poseLandmarks[LEFT_ANKLE]);
+    // color += line(poseLandmarks[RIGHT_HEEL], poseLandmarks[RIGHT_FOOT]);
 
-    color += line(poseLandmarks[RIGHT_KNEE], poseLandmarks[RIGHT_ANKLE]);
+    // color += faceOval();
+    // color += lips();
+    // color += leftEye();
+    // color += rightEye();
+    // color += leftEyebrow();
+    // color += rightEyebrow();
 
-    color += line(poseLandmarks[LEFT_ANKLE], poseLandmarks[LEFT_HEEL]);
-
-    color += line(poseLandmarks[RIGHT_ANKLE], poseLandmarks[RIGHT_HEEL]);
-
-    color += line(poseLandmarks[LEFT_HEEL], poseLandmarks[LEFT_FOOT]);
-
-    color += line(poseLandmarks[RIGHT_HEEL], poseLandmarks[RIGHT_FOOT]);
-
-    color += faceOval();
-    color += lips();
-    color += leftEye();
-    color += rightEye();
-    color += leftEyebrow();
-    color += rightEyebrow();
-
-    // color += smoothstep(0.0, 0.05, edges());
+    color += selfieEdges();
 
     gl_FragColor = vec4(color, 1.0);
 }

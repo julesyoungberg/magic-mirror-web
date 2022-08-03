@@ -66,7 +66,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
     const imageTexture = new THREE.CanvasTexture(canvasElement);
 
-    const createLandmarksArray = (length: number) => new Array(length * 2).fill(0);
+    const createLandmarksArray = (length: number) => new Array(length * 3).fill(0);
 
     const initialPoseLandmarks = createLandmarksArray(14);
     const initialFaceLandmarks = createLandmarksArray(478);
@@ -103,7 +103,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
     // renderer.setPixelRatio(window.devicePixelRatio);
 
     const prepareLandmarks = (landmarks: mpHolistic.NormalizedLandmarkList) => 
-        landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y], []);
+        landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y, l.visibility || 0.0], []);
 
     return (results: mpHolistic.Results) => {
         document.body.classList.add("loaded");
