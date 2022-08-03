@@ -68,7 +68,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
     const createLandmarksArray = (length: number) => new Array(length * 2).fill(0);
 
-    const initialPoseLandmarks = createLandmarksArray(33);
+    const initialPoseLandmarks = createLandmarksArray(14);
     const initialFaceLandmarks = createLandmarksArray(478);
     const initialHandLandmarks = createLandmarksArray(21);
 
@@ -101,14 +101,6 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
     const renderer = new THREE.WebGLRenderer({ canvas: canvasElement });
     // renderer.setPixelRatio(window.devicePixelRatio);
-
-    function onWindowResize() {
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    onWindowResize();
-
-    window.addEventListener("resize", onWindowResize);
 
     const prepareLandmarks = (landmarks: mpHolistic.NormalizedLandmarkList) => 
         landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y], []);
