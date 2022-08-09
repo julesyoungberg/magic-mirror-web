@@ -3,6 +3,7 @@ import * as cameraUtils from "@mediapipe/camera_utils";
 import * as drawingUtils from "@mediapipe/drawing_utils";
 import * as mpHolistic from "@mediapipe/holistic";
 import * as THREE from "three";
+import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry";
 
 import fragmentShader from "./glsl/main.frag";
 import vertexShader from "./glsl/main.vert";
@@ -105,6 +106,9 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
     const prepareLandmarks = (landmarks: mpHolistic.NormalizedLandmarkList) => 
         landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y, l.visibility || 0.0], []);
 
+    const preparePoints = (landmarks: mpHolistic.NormalizedLandmarkList) =>
+        landmarks.map((l) => new THREE.Vector3(l.x * 2.0 - 1.0, (1.0 - l.y) * 2.0 - 1.0, 0.0)).filter(Boolean);
+
     return (results: mpHolistic.Results) => {
         document.body.classList.add("loaded");
 
@@ -118,33 +122,53 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
         uniforms.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
 
+        const points = [];
+
         if (results.poseLandmarks) {
             uniforms.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
+            points.push(...preparePoints(results.poseLandmarks));
         } else {
             uniforms.poseLandmarks.value = initialPoseLandmarks;
         }
 
         if (results.faceLandmarks) {
             uniforms.faceLandmarks.value = prepareLandmarks(results.faceLandmarks);
+            points.push(...preparePoints(results.faceLandmarks));
         } else {
             uniforms.faceLandmarks.value = initialFaceLandmarks;
         }
 
         if (results.leftHandLandmarks) {
             uniforms.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
+            points.push(...preparePoints(results.leftHandLandmarks));
         } else {
             uniforms.leftHandLandmarks.value = initialHandLandmarks;
         }
 
         if (results.rightHandLandmarks) {
             uniforms.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
+            points.push(...preparePoints(results.rightHandLandmarks));
         } else {
             uniforms.rightHandLandmarks.value = initialHandLandmarks;
         }
 
         uniforms.time.value = performance.now() / 1000;
 
+        // let hullMesh;
+
+        // if (points.length > 0) {
+        //     const hullGeometry = new ConvexGeometry(points);
+        //     const hullMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        //     hullMesh = new THREE.Mesh(hullGeometry, hullMaterial);
+
+        //     scene.add(hullMesh);
+        // }
+
         renderer.render(scene, camera);
+    
+        // if (hullMesh) {
+        //     scene.remove(hullMesh);
+        // }
     };
 }
 

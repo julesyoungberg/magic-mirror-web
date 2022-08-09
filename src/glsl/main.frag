@@ -33,9 +33,9 @@ vec3 landmark(vec3 landmark) {
     return vec3(smoothstep(0.002, 0.0, dist)) * landmark.z;
 }
 
-float maskEdges() {
+float maskEdges(vec2 st) {
     // const vec2 resolution = vec2(1280.0, 720.0);
-    vec2 stp = vec2(0.005); // 1.0 / resolution;
+    vec2 stp = vec2(0.002); // 1.0 / resolution;
 
     float center = texture2D(segmentationMask, st).r;
     float left = texture2D(segmentationMask, st - stp * vec2(1.0, 0.0)).r;
@@ -51,7 +51,7 @@ float maskEdges() {
         + abs(center - topRight) + abs(center - right) + abs(center - bottomRight)
         + abs(center - bottom) + abs(center - bottomLeft)) / 8.0;
 
-    return smoothstep(0.1, 0.0, shade);
+    return smoothstep(0.0, 0.1, shade);
 }
 
 float toGray(vec3 c) {
@@ -365,6 +365,7 @@ void main()	{
     // color += leftEyebrow();
     // color += rightEyebrow();
 
+    // color += maskEdges(st);
     color += selfieEdges();
 
     gl_FragColor = vec4(color, 1.0);
