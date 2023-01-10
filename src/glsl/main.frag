@@ -307,18 +307,18 @@ vec3 rightEyebrow() {
 void main()	{
     vec3 color = vec3(0.0);
     
-    // // color = texture2D(image, st).rgb;
-    // // color.g += texture2D(segmentationMask, st).r * 0.5;
-    // color = texture2D(image, st).rgb; // * texture2D(segmentationMask, st).r;
+    // color = texture2D(image, st).rgb;
+    // color.g += texture2D(segmentationMask, st).r * 0.5;
+    color = texture2D(image, st).rgb; // * texture2D(segmentationMask, st).r;
 
-    // // for (int i = 0; i < 478; i++) {
-    // //     color += landmark(faceLandmarks[i]);
-    // // }
+    // for (int i = 0; i < 478; i++) {
+    //     color += landmark(faceLandmarks[i]);
+    // }
 
-    // // for (int i = 0; i < 21; i++) {
-    // //     color += landmark(leftHandLandmarks[i]);
-    // //     color += landmark(rightHandLandmarks[i]);
-    // // }
+    // for (int i = 0; i < 21; i++) {
+    //     color += landmark(leftHandLandmarks[i]);
+    //     color += landmark(rightHandLandmarks[i]);
+    // }
 
     // color += line(poseLandmarks[LEFT_SHOULDER], poseLandmarks[RIGHT_SHOULDER]);
 
@@ -366,7 +366,7 @@ void main()	{
     // color += rightEyebrow();
 
     // color += maskEdges(st);
-    color += selfieEdges();
+    // color += selfieEdges();
 
     gl_FragColor = vec4(color, 1.0);
 }
