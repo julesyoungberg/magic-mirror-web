@@ -2,6 +2,7 @@
 import * as cameraUtils from "@mediapipe/camera_utils";
 import * as drawingUtils from "@mediapipe/drawing_utils";
 import * as mpHolistic from "@mediapipe/holistic";
+import Delaunator from 'delaunator';
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry";
 
@@ -9,6 +10,7 @@ import fragmentShader from "./glsl/main.frag";
 import vertexShader from "./glsl/main.vert";
 
 import { FACE_MESH_POINTS } from "./landmarks";
+import filters from "./filters";
 
 const config = {
     locateFile: (file: string) =>
@@ -62,8 +64,41 @@ function connect(
 
 async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
     const scene = new THREE.Scene();
+
+    const filter = filters.skeleton;
+    const maskPoints = filter.annotions.map((p) => [1.0 - p[0] / filter.width, 1.0 - p[1] / filter.height]);
+    const maskDelaunay = Delaunator.from(maskPoints);
+    const mask3DPoints = maskPoints.map((p) => new THREE.Vector3(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, -0.1));
+    const faceGeometry = new THREE.BufferGeometry().setFromPoints(mask3DPoints);
+    faceGeometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(
+            new Float32Array(mask3DPoints.map((p) => p.toArray()).flat()),
+            3
+        )
+    );
+
+    const cloud = new THREE.Points(
+        faceGeometry,
+        new THREE.PointsMaterial({ color: 0x99ccff, size: 2 })
+    );
+
+    scene.add(cloud);
+
+    faceGeometry.setIndex([...maskDelaunay.triangles]);
+    // faceGeometry.computeVertexNormals();
+
+    const faceMesh = new THREE.Mesh(
+        faceGeometry,
+        new THREE.MeshLambertMaterial({ color: "purple", wireframe: true })
+    );
+    // const faceMesh = new THREE.Mesh(
+    //     faceGeometry,
+    //     new THREE.MeshBasicMaterial( { color: 0xff0000 } )
+    // );
+
+    scene.add(faceMesh);
 
     const geometry = new THREE.PlaneGeometry(2, 2);
 
@@ -109,7 +144,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
         landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y, l.visibility || 0.0], []);
 
     const preparePoints = (landmarks: mpHolistic.NormalizedLandmarkList) =>
-        landmarks.map((l) => new THREE.Vector3(l.x * 2.0 - 1.0, (1.0 - l.y) * 2.0 - 1.0, 0.0)).filter(Boolean);
+        landmarks.map((l) => new THREE.Vector3(l.x * 2.0 - 1.0, (1.0 - l.y) * 2.0 - 1.0, l.z * 0.5 - 0.1)).filter(Boolean);
 
     return (results: mpHolistic.Results) => {
         document.body.classList.add("loaded");
@@ -117,7 +152,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
         // Remove landmarks we don't want to draw.
         removeLandmarks(results);
 
-        console.log(results);
+        // // console.log(results);
 
         // Update the frame rate.
         // fpsControl.tick();
@@ -126,96 +161,74 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
 
         uniforms.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
 
-        const points: THREE.Vector3[] = [];
-        let faceMesh;
-
-        // const faceMeshes = [];
-
-        // for (const faceGeometry of results.multiFaceGeometry) {
-        //     const mesh = faceGeometry.getMesh();
-        //     const vertices = mesh.getVertexBufferList();
-        //     const vertexType = mesh.getVertexType();
-        //     console.log({ vertices, vertexType });
-        //     for (let i = 0; i < vertices.length / 3; i++) {
-        //         const idx = i * 3;
-        //         points.push(new THREE.Vector3(vertices[idx], vertices[idx + 1], 0)); // vertices[idx + 2]));
-        //     }
-        // }
+        // const points: THREE.Vector3[] = [];
 
         if (results.faceLandmarks) {
             uniforms.faceLandmarks.value = prepareLandmarks(results.faceLandmarks);
             // points.push(...preparePoints(results.faceLandmarks));
 
-            const facePoints = preparePoints(results.faceLandmarks);
-            // const positions = new Float32Array(3 * addPoints.length); // facePoints.length);
-            // facePoints.forEach((p, i) => p.toArray(positions, i * 3));
-            // addPoints.forEach(([p], i) => facePoints[p].toArray(positions, i * 3));
-            FACE_MESH_POINTS.forEach((p, i) => points.push(facePoints[p]));
+            const allFacePoints = preparePoints(results.faceLandmarks);
+            const facePoints = FACE_MESH_POINTS.map((p) => allFacePoints[p]);
+            facePoints.forEach((p, i) => p.toArray(faceMesh.geometry.attributes.position.array, i * 3));
 
-
-            // const geometry = new ConvexGeometry(facePoints);
-            // const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-            // faceMesh = new THREE.Mesh(geometry, material);
-            // // faceMesh = new THREE.WireframeGeometry( geometry );
-            // scene.add(faceMesh);
+            faceMesh.geometry.attributes.position.needsUpdate = true;
+            // faceMesh.geometry.computeVertexNormals();
+            // faceMesh.geometry.computeBoundingBox();
+            // faceMesh.geometry.computeBoundingSphere();
         } else {
             uniforms.faceLandmarks.value = initialFaceLandmarks;
         }
 
-        if (results.poseLandmarks) {
-            uniforms.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
-            // points.push(...preparePoints(results.poseLandmarks));
-        } else {
-            uniforms.poseLandmarks.value = initialPoseLandmarks;
-        }
+        // if (results.poseLandmarks) {
+        //     uniforms.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
+        //     // points.push(...preparePoints(results.poseLandmarks));
+        // } else {
+        //     uniforms.poseLandmarks.value = initialPoseLandmarks;
+        // }
 
-        if (results.leftHandLandmarks) {
-            uniforms.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
-            // points.push(...preparePoints(results.leftHandLandmarks));
-        } else {
-            uniforms.leftHandLandmarks.value = initialHandLandmarks;
-        }
+        // if (results.leftHandLandmarks) {
+        //     uniforms.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
+        //     // points.push(...preparePoints(results.leftHandLandmarks));
+        // } else {
+        //     uniforms.leftHandLandmarks.value = initialHandLandmarks;
+        // }
 
-        if (results.rightHandLandmarks) {
-            uniforms.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
-            // points.push(...preparePoints(results.rightHandLandmarks));
-        } else {
-            uniforms.rightHandLandmarks.value = initialHandLandmarks;
-        }
+        // if (results.rightHandLandmarks) {
+        //     uniforms.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
+        //     // points.push(...preparePoints(results.rightHandLandmarks));
+        // } else {
+        //     uniforms.rightHandLandmarks.value = initialHandLandmarks;
+        // }
 
         uniforms.time.value = performance.now() / 1000;
 
-        // let hullMesh;
-        let particles;
+        // // let hullMesh;
+        // let particles;
 
-        if (points.length > 0) {
-            // const hullGeometry = new ConvexGeometry(points);
-            // const hullMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-            // hullMesh = new THREE.Mesh(hullGeometry, hullMaterial);
-            // scene.add(hullMesh);
+        // // if (points.length > 0) {
+        // //     // const hullGeometry = new ConvexGeometry(points);
+        // //     // const hullMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        // //     // hullMesh = new THREE.Mesh(hullGeometry, hullMaterial);
+        // //     // scene.add(hullMesh);
 
-            const positions = new Float32Array(3 * points.length);
-            points.forEach((p, i) => p.toArray(positions, i * 3));
+        // //     const positions = new Float32Array(3 * points.length);
+        // //     points.forEach((p, i) => p.toArray(positions, i * 3));
 
-            const geometry = new THREE.BufferGeometry();
-			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            particles = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 10.0 }));
-            scene.add(particles);
-        }
+        // //     const geometry = new THREE.BufferGeometry();
+		// // 	geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        // //     particles = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 10.0 }));
+        // //     scene.add(particles);
+        // // }
 
         renderer.render(scene, camera);
     
-        // if (hullMesh) {
-        //     scene.remove(hullMesh);
+        // // if (hullMesh) {
+        // //     scene.remove(hullMesh);
+        // // }
+
+        // if (particles) {
+        //     scene.remove(particles);
         // }
-
-        if (particles) {
-            scene.remove(particles);
-        }
-
-        if (faceMesh) {
-            scene.remove(faceMesh);
-        }
     };
 }
 
