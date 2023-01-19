@@ -1,7 +1,7 @@
 // based on: https://codepen.io/mediapipe/pen/LYRRYEw
 import * as cameraUtils from "@mediapipe/camera_utils";
 import * as mpHolistic from "@mediapipe/holistic";
-import Delaunator from 'delaunator';
+import Delaunator from "delaunator";
 import * as THREE from "three";
 
 import fragmentShader from "./glsl/main.frag";
@@ -35,11 +35,23 @@ function removeLandmarks(results: mpHolistic.Results) {
 }
 
 function prepareLandmarks(landmarks: mpHolistic.NormalizedLandmarkList) {
-    return landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y, l.visibility || 0.0], []);
+    return landmarks.reduce<number[]>(
+        (acc, l) => [...acc, l.x, l.y, l.visibility || 0.0],
+        []
+    );
 }
 
 function preparePoints(landmarks: mpHolistic.NormalizedLandmarkList) {
-    return landmarks.map((l) => new THREE.Vector3(l.x * 2.0 - 1.0, (1.0 - l.y) * 2.0 - 1.0, l.z * 0.5 - 0.1)).filter(Boolean);
+    return landmarks
+        .map(
+            (l) =>
+                new THREE.Vector3(
+                    l.x * 2.0 - 1.0,
+                    (1.0 - l.y) * 2.0 - 1.0,
+                    l.z * 0.5 - 0.1
+                )
+        )
+        .filter(Boolean);
 }
 
 class HolisticUniforms {
@@ -47,12 +59,19 @@ class HolisticUniforms {
     private initialFaceLandmarks: number[];
     private initialHandLandmarks: number[];
     private data: Record<
-        'time' | 'image' | 'segmentationMask' | 'poseLandmarks' | 'faceLandmarks' | 'leftHandLandmarks' | 'rightHandLandmarks',
+        | "time"
+        | "image"
+        | "segmentationMask"
+        | "poseLandmarks"
+        | "faceLandmarks"
+        | "leftHandLandmarks"
+        | "rightHandLandmarks",
         { value: any }
     >;
 
     constructor(imageTexture: THREE.Texture) {
-        const createLandmarksArray = (length: number) => new Array(length * 3).fill(0);
+        const createLandmarksArray = (length: number) =>
+            new Array(length * 3).fill(0);
         this.initialPoseLandmarks = createLandmarksArray(14);
         this.initialFaceLandmarks = createLandmarksArray(478);
         this.initialHandLandmarks = createLandmarksArray(21);
@@ -87,48 +106,67 @@ class HolisticUniforms {
     update(results: mpHolistic.Results) {
         this.updateTime();
         this.data.image.value = new THREE.CanvasTexture(results.image);
-        this.data.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
+        this.data.segmentationMask.value = new THREE.CanvasTexture(
+            results.segmentationMask
+        );
 
         if (results.faceLandmarks) {
-            this.data.faceLandmarks.value = prepareLandmarks(results.faceLandmarks);
+            this.data.faceLandmarks.value = prepareLandmarks(
+                results.faceLandmarks
+            );
         } else {
             this.data.faceLandmarks.value = this.initialFaceLandmarks;
         }
 
         if (results.poseLandmarks) {
-            this.data.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
+            this.data.poseLandmarks.value = prepareLandmarks(
+                results.poseLandmarks
+            );
         } else {
             this.data.poseLandmarks.value = this.initialPoseLandmarks;
         }
 
         if (results.leftHandLandmarks) {
-            this.data.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
+            this.data.leftHandLandmarks.value = prepareLandmarks(
+                results.leftHandLandmarks
+            );
         } else {
             this.data.leftHandLandmarks.value = this.initialHandLandmarks;
         }
 
         if (results.rightHandLandmarks) {
-            this.data.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
+            this.data.rightHandLandmarks.value = prepareLandmarks(
+                results.rightHandLandmarks
+            );
         } else {
             this.data.rightHandLandmarks.value = this.initialHandLandmarks;
         }
     }
 }
 
-function generateGeometryFromAnnotations(annotations: number[][], maskWidth: number, maskHeight: number) {
-    const maskPoints = annotations.map((p) => [1.0 - p[0] / maskWidth, 1.0 - p[1] / maskHeight]);
+function generateGeometryFromAnnotations(
+    annotations: number[][],
+    maskWidth: number,
+    maskHeight: number
+) {
+    const maskPoints = annotations.map((p) => [
+        1.0 - p[0] / maskWidth,
+        1.0 - p[1] / maskHeight,
+    ]);
     const maskDelaunay = Delaunator.from(maskPoints);
-    const mask3DPoints = maskPoints.map((p) => new THREE.Vector3(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, -0.1));
+    const mask3DPoints = maskPoints.map(
+        (p) => new THREE.Vector3(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, -0.1)
+    );
     const geometry = new THREE.BufferGeometry().setFromPoints(mask3DPoints);
     geometry.setAttribute(
-        'position',
+        "position",
         new THREE.BufferAttribute(
             new Float32Array(mask3DPoints.map((p) => p.toArray()).flat()),
             3
         )
     );
     geometry.setAttribute(
-        'uv',
+        "uv",
         new THREE.BufferAttribute(
             new Float32Array(maskPoints.map((p) => [p[0], p[1]]).flat()),
             2
@@ -140,7 +178,11 @@ function generateGeometryFromAnnotations(annotations: number[][], maskWidth: num
 }
 
 function loadFilter(filter: Filter) {
-    const filterGeometry = generateGeometryFromAnnotations(filter.annotations, filter.width, filter.height);
+    const filterGeometry = generateGeometryFromAnnotations(
+        filter.annotations,
+        filter.width,
+        filter.height
+    );
     const loader = new THREE.TextureLoader();
     const filterTexture = loader.load(filter.path);
     return { filterGeometry, filterTexture };
@@ -180,8 +222,11 @@ function getHolisticParticles(results: mpHolistic.Results) {
     points.forEach((p, i) => p.toArray(positions, i * 3));
 
     const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 10.0 }));
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const particles = new THREE.Points(
+        geometry,
+        new THREE.PointsMaterial({ size: 10.0 })
+    );
     return particles;
 }
 
@@ -194,7 +239,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
     const { filterGeometry, filterTexture } = loadFilter(FILTERS.skeleton);
     const filterMesh = new THREE.Mesh(
         filterGeometry,
-        new THREE.MeshLambertMaterial({ color: 'purple', map: filterTexture }) // , wireframe: true })
+        new THREE.MeshLambertMaterial({ color: "purple", map: filterTexture }) // , wireframe: true })
     );
     scene.add(filterMesh);
     // filterMesh.geometry.attributes.position.needsUpdate = true;
@@ -222,7 +267,9 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
         if (results.faceLandmarks) {
             const allFacePoints = preparePoints(results.faceLandmarks);
             const facePoints = FACE_MESH_POINTS.map((p) => allFacePoints[p]);
-            facePoints.forEach((p, i) => p.toArray(filterMesh.geometry.attributes.position.array, i * 3));
+            facePoints.forEach((p, i) =>
+                p.toArray(filterMesh.geometry.attributes.position.array, i * 3)
+            );
 
             filterMesh.geometry.attributes.position.needsUpdate = true;
             // filterMesh.geometry.computeVertexNormals();
