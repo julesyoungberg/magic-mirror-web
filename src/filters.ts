@@ -1,7 +1,14 @@
-export default {
+export type Filter = {
+    path: string;
+    annotations: number[][];
+    height: number;
+    width: number;
+};
+
+export const FILTERS: Record<string, Filter> = {
     skeleton: {
         path: './images/skeleton.png',
-        annotions: [
+        annotations: [
             // Outer lips
             [839, 510], [829, 527], [793, 527], [764, 527], [737, 527], [725, 505], [737, 488], [771, 494], [807, 497], [834, 494],
             // Nose

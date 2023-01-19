@@ -1,16 +1,14 @@
 // based on: https://codepen.io/mediapipe/pen/LYRRYEw
 import * as cameraUtils from "@mediapipe/camera_utils";
-import * as drawingUtils from "@mediapipe/drawing_utils";
 import * as mpHolistic from "@mediapipe/holistic";
 import Delaunator from 'delaunator';
 import * as THREE from "three";
-import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry";
 
 import fragmentShader from "./glsl/main.frag";
 import vertexShader from "./glsl/main.vert";
 
 import { FACE_MESH_POINTS } from "./landmarks";
-import filters from "./filters";
+import { Filter, FILTERS } from "./filters";
 
 const config = {
     locateFile: (file: string) =>
@@ -36,115 +34,182 @@ function removeLandmarks(results: mpHolistic.Results) {
     }
 }
 
-function connect(
-    ctx: CanvasRenderingContext2D,
-    connectors: Array<
-        [mpHolistic.NormalizedLandmark, mpHolistic.NormalizedLandmark]
-    >
-): void {
-    const canvas = ctx.canvas;
-    for (const connector of connectors) {
-        const from = connector[0];
-        const to = connector[1];
-        if (from && to) {
-            if (
-                from.visibility &&
-                to.visibility &&
-                (from.visibility < 0.1 || to.visibility < 0.1)
-            ) {
-                continue;
-            }
-            ctx.beginPath();
-            ctx.moveTo(from.x * canvas.width, from.y * canvas.height);
-            ctx.lineTo(to.x * canvas.width, to.y * canvas.height);
-            ctx.stroke();
+function prepareLandmarks(landmarks: mpHolistic.NormalizedLandmarkList) {
+    return landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y, l.visibility || 0.0], []);
+}
+
+function preparePoints(landmarks: mpHolistic.NormalizedLandmarkList) {
+    return landmarks.map((l) => new THREE.Vector3(l.x * 2.0 - 1.0, (1.0 - l.y) * 2.0 - 1.0, l.z * 0.5 - 0.1)).filter(Boolean);
+}
+
+class HolisticUniforms {
+    private initialPoseLandmarks: number[];
+    private initialFaceLandmarks: number[];
+    private initialHandLandmarks: number[];
+    private data: Record<
+        'time' | 'image' | 'segmentationMask' | 'poseLandmarks' | 'faceLandmarks' | 'leftHandLandmarks' | 'rightHandLandmarks',
+        { value: any }
+    >;
+
+    constructor(imageTexture: THREE.Texture) {
+        const createLandmarksArray = (length: number) => new Array(length * 3).fill(0);
+        this.initialPoseLandmarks = createLandmarksArray(14);
+        this.initialFaceLandmarks = createLandmarksArray(478);
+        this.initialHandLandmarks = createLandmarksArray(21);
+
+        this.data = {
+            time: { value: 1.0 },
+            image: { value: imageTexture },
+            segmentationMask: { value: imageTexture },
+            poseLandmarks: {
+                value: this.initialPoseLandmarks,
+            },
+            faceLandmarks: {
+                value: this.initialFaceLandmarks,
+            },
+            leftHandLandmarks: {
+                value: this.initialHandLandmarks,
+            },
+            rightHandLandmarks: {
+                value: this.initialHandLandmarks,
+            },
+        };
+    }
+
+    getData() {
+        return this.data;
+    }
+
+    updateTime() {
+        this.data.time.value = performance.now() / 1000;
+    }
+
+    update(results: mpHolistic.Results) {
+        this.updateTime();
+        this.data.image.value = new THREE.CanvasTexture(results.image);
+        this.data.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
+
+        if (results.faceLandmarks) {
+            this.data.faceLandmarks.value = prepareLandmarks(results.faceLandmarks);
+        } else {
+            this.data.faceLandmarks.value = this.initialFaceLandmarks;
+        }
+
+        if (results.poseLandmarks) {
+            this.data.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
+        } else {
+            this.data.poseLandmarks.value = this.initialPoseLandmarks;
+        }
+
+        if (results.leftHandLandmarks) {
+            this.data.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
+        } else {
+            this.data.leftHandLandmarks.value = this.initialHandLandmarks;
+        }
+
+        if (results.rightHandLandmarks) {
+            this.data.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
+        } else {
+            this.data.rightHandLandmarks.value = this.initialHandLandmarks;
         }
     }
 }
 
-async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const scene = new THREE.Scene();
-
-    const filter = filters.skeleton;
-    const maskPoints = filter.annotions.map((p) => [1.0 - p[0] / filter.width, 1.0 - p[1] / filter.height]);
+function generateGeometryFromAnnotations(annotations: number[][], maskWidth: number, maskHeight: number) {
+    const maskPoints = annotations.map((p) => [1.0 - p[0] / maskWidth, 1.0 - p[1] / maskHeight]);
     const maskDelaunay = Delaunator.from(maskPoints);
     const mask3DPoints = maskPoints.map((p) => new THREE.Vector3(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, -0.1));
-    const faceGeometry = new THREE.BufferGeometry().setFromPoints(mask3DPoints);
-    faceGeometry.setAttribute(
+    const geometry = new THREE.BufferGeometry().setFromPoints(mask3DPoints);
+    geometry.setAttribute(
         'position',
         new THREE.BufferAttribute(
             new Float32Array(mask3DPoints.map((p) => p.toArray()).flat()),
             3
         )
     );
+    geometry.setAttribute(
+        'uv',
+        new THREE.BufferAttribute(
+            new Float32Array(maskPoints.map((p) => [p[0], p[1]]).flat()),
+            2
+        )
+    );
+    geometry.setIndex([...maskDelaunay.triangles]);
+    // geometry.computeVertexNormals();
+    return geometry;
+}
 
-    const cloud = new THREE.Points(
-        faceGeometry,
+function loadFilter(filter: Filter) {
+    const filterGeometry = generateGeometryFromAnnotations(filter.annotations, filter.width, filter.height);
+    const loader = new THREE.TextureLoader();
+    const filterTexture = loader.load(filter.path);
+    return { filterGeometry, filterTexture };
+}
+
+function createPointsCloud(geometry: THREE.BufferGeometry) {
+    return new THREE.Points(
+        geometry,
         new THREE.PointsMaterial({ color: 0x99ccff, size: 2 })
     );
+}
 
-    scene.add(cloud);
+function getHolisticParticles(results: mpHolistic.Results) {
+    const points: THREE.Vector3[] = [];
 
-    faceGeometry.setIndex([...maskDelaunay.triangles]);
-    // faceGeometry.computeVertexNormals();
+    if (results.faceLandmarks) {
+        points.push(...preparePoints(results.faceLandmarks));
+    }
 
-    const faceMesh = new THREE.Mesh(
-        faceGeometry,
-        new THREE.MeshLambertMaterial({ color: "purple", wireframe: true })
-    );
-    // const faceMesh = new THREE.Mesh(
-    //     faceGeometry,
-    //     new THREE.MeshBasicMaterial( { color: 0xff0000 } )
-    // );
+    if (results.poseLandmarks) {
+        points.push(...preparePoints(results.poseLandmarks));
+    }
 
-    scene.add(faceMesh);
+    if (results.leftHandLandmarks) {
+        points.push(...preparePoints(results.leftHandLandmarks));
+    }
 
-    const geometry = new THREE.PlaneGeometry(2, 2);
+    if (results.rightHandLandmarks) {
+        points.push(...preparePoints(results.rightHandLandmarks));
+    }
 
-    const imageTexture = new THREE.CanvasTexture(canvasElement);
+    if (points.length === 0) {
+        return undefined;
+    }
 
-    const createLandmarksArray = (length: number) => new Array(length * 3).fill(0);
+    const positions = new Float32Array(3 * points.length);
+    points.forEach((p, i) => p.toArray(positions, i * 3));
 
-    const initialPoseLandmarks = createLandmarksArray(14);
-    const initialFaceLandmarks = createLandmarksArray(478);
-    const initialHandLandmarks = createLandmarksArray(21);
+    const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particles = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 10.0 }));
+    return particles;
+}
 
-    const uniforms = {
-        time: { value: 1.0 },
-        image: { value: imageTexture },
-        segmentationMask: { value: imageTexture },
-        poseLandmarks: {
-            value: initialPoseLandmarks,
-        },
-        faceLandmarks: {
-            value: initialFaceLandmarks,
-        },
-        leftHandLandmarks: {
-            value: initialHandLandmarks,
-        },
-        rightHandLandmarks: {
-            value: initialHandLandmarks,
-        },
-    };
-
-    const material = new THREE.ShaderMaterial({
-        uniforms: uniforms,
-        vertexShader,
-        fragmentShader,
-    });
-
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
-
+async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const scene = new THREE.Scene();
     const renderer = new THREE.WebGLRenderer({ canvas: canvasElement });
     // renderer.setPixelRatio(window.devicePixelRatio);
 
-    const prepareLandmarks = (landmarks: mpHolistic.NormalizedLandmarkList) => 
-        landmarks.reduce<number[]>((acc, l) => [...acc, l.x, l.y, l.visibility || 0.0], []);
+    const { filterGeometry, filterTexture } = loadFilter(FILTERS.skeleton);
+    const filterMesh = new THREE.Mesh(
+        filterGeometry,
+        new THREE.MeshLambertMaterial({ color: 'purple', map: filterTexture }) // , wireframe: true })
+    );
+    scene.add(filterMesh);
+    // filterMesh.geometry.attributes.position.needsUpdate = true;
+    scene.add(createPointsCloud(filterGeometry));
 
-    const preparePoints = (landmarks: mpHolistic.NormalizedLandmarkList) =>
-        landmarks.map((l) => new THREE.Vector3(l.x * 2.0 - 1.0, (1.0 - l.y) * 2.0 - 1.0, l.z * 0.5 - 0.1)).filter(Boolean);
+    const planeGeometry = new THREE.PlaneGeometry(2, 2);
+    const canvasTexture = new THREE.CanvasTexture(canvasElement);
+    const uniforms = new HolisticUniforms(canvasTexture); // filterTexture);
+    const material = new THREE.ShaderMaterial({
+        uniforms: uniforms.getData(),
+        vertexShader,
+        fragmentShader,
+    });
+    const mesh = new THREE.Mesh(planeGeometry, material);
+    scene.add(mesh);
 
     return (results: mpHolistic.Results) => {
         document.body.classList.add("loaded");
@@ -152,283 +217,29 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
         // Remove landmarks we don't want to draw.
         removeLandmarks(results);
 
-        // // console.log(results);
-
-        // Update the frame rate.
-        // fpsControl.tick();
-
-        uniforms.image.value = new THREE.CanvasTexture(results.image);
-
-        uniforms.segmentationMask.value = new THREE.CanvasTexture(results.segmentationMask);
-
-        // const points: THREE.Vector3[] = [];
+        uniforms.update(results);
 
         if (results.faceLandmarks) {
-            uniforms.faceLandmarks.value = prepareLandmarks(results.faceLandmarks);
-            // points.push(...preparePoints(results.faceLandmarks));
-
             const allFacePoints = preparePoints(results.faceLandmarks);
             const facePoints = FACE_MESH_POINTS.map((p) => allFacePoints[p]);
-            facePoints.forEach((p, i) => p.toArray(faceMesh.geometry.attributes.position.array, i * 3));
+            facePoints.forEach((p, i) => p.toArray(filterMesh.geometry.attributes.position.array, i * 3));
 
-            faceMesh.geometry.attributes.position.needsUpdate = true;
-            // faceMesh.geometry.computeVertexNormals();
-            // faceMesh.geometry.computeBoundingBox();
-            // faceMesh.geometry.computeBoundingSphere();
-        } else {
-            uniforms.faceLandmarks.value = initialFaceLandmarks;
+            filterMesh.geometry.attributes.position.needsUpdate = true;
+            // filterMesh.geometry.computeVertexNormals();
+            // filterMesh.geometry.computeBoundingBox();
+            // filterMesh.geometry.computeBoundingSphere();
         }
 
-        // if (results.poseLandmarks) {
-        //     uniforms.poseLandmarks.value = prepareLandmarks(results.poseLandmarks);
-        //     // points.push(...preparePoints(results.poseLandmarks));
-        // } else {
-        //     uniforms.poseLandmarks.value = initialPoseLandmarks;
+        // const particles = getHolisticParticles(results);
+        // if (particles) {
+        //     scene.add(particles);
         // }
-
-        // if (results.leftHandLandmarks) {
-        //     uniforms.leftHandLandmarks.value = prepareLandmarks(results.leftHandLandmarks);
-        //     // points.push(...preparePoints(results.leftHandLandmarks));
-        // } else {
-        //     uniforms.leftHandLandmarks.value = initialHandLandmarks;
-        // }
-
-        // if (results.rightHandLandmarks) {
-        //     uniforms.rightHandLandmarks.value = prepareLandmarks(results.rightHandLandmarks);
-        //     // points.push(...preparePoints(results.rightHandLandmarks));
-        // } else {
-        //     uniforms.rightHandLandmarks.value = initialHandLandmarks;
-        // }
-
-        uniforms.time.value = performance.now() / 1000;
-
-        // // let hullMesh;
-        // let particles;
-
-        // // if (points.length > 0) {
-        // //     // const hullGeometry = new ConvexGeometry(points);
-        // //     // const hullMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-        // //     // hullMesh = new THREE.Mesh(hullGeometry, hullMaterial);
-        // //     // scene.add(hullMesh);
-
-        // //     const positions = new Float32Array(3 * points.length);
-        // //     points.forEach((p, i) => p.toArray(positions, i * 3));
-
-        // //     const geometry = new THREE.BufferGeometry();
-		// // 	geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        // //     particles = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 10.0 }));
-        // //     scene.add(particles);
-        // // }
 
         renderer.render(scene, camera);
-    
-        // // if (hullMesh) {
-        // //     scene.remove(hullMesh);
-        // // }
 
         // if (particles) {
         //     scene.remove(particles);
         // }
-    };
-}
-
-let activeEffect = "mask";
-function makeOnResults2D(canvasElement: HTMLCanvasElement) {
-    const canvasCtx = canvasElement.getContext("2d");
-    if (!canvasCtx) {
-        throw new Error("unavle to get drawing context");
-    }
-
-    return (results: mpHolistic.Results) => {
-        document.body.classList.add("loaded");
-
-        // Remove landmarks we don't want to draw.
-        removeLandmarks(results);
-
-        // Update the frame rate.
-        // fpsControl.tick();
-
-        // Draw the overlays.
-        canvasCtx.save();
-        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-        if (results.segmentationMask) {
-            canvasCtx.drawImage(
-                results.segmentationMask,
-                0,
-                0,
-                canvasElement.width,
-                canvasElement.height
-            );
-
-            // Only overwrite existing pixels.
-            if (activeEffect === "mask" || activeEffect === "both") {
-                canvasCtx.globalCompositeOperation = "source-in";
-                // This can be a color or a texture or whatever...
-                canvasCtx.fillStyle = "#00FF007F";
-                canvasCtx.fillRect(
-                    0,
-                    0,
-                    canvasElement.width,
-                    canvasElement.height
-                );
-            } else {
-                canvasCtx.globalCompositeOperation = "source-out";
-                canvasCtx.fillStyle = "#0000FF7F";
-                canvasCtx.fillRect(
-                    0,
-                    0,
-                    canvasElement.width,
-                    canvasElement.height
-                );
-            }
-
-            // Only overwrite missing pixels.
-            canvasCtx.globalCompositeOperation = "destination-atop";
-            canvasCtx.drawImage(
-                results.image,
-                0,
-                0,
-                canvasElement.width,
-                canvasElement.height
-            );
-
-            canvasCtx.globalCompositeOperation = "source-over";
-        } else {
-            canvasCtx.drawImage(
-                results.image,
-                0,
-                0,
-                canvasElement.width,
-                canvasElement.height
-            );
-        }
-
-        // Connect elbows to hands. Do this first so that the other graphics will draw
-        // on top of these marks.
-        canvasCtx.lineWidth = 5;
-        if (results.poseLandmarks) {
-            if (results.rightHandLandmarks) {
-                canvasCtx.strokeStyle = "white";
-                connect(canvasCtx, [
-                    [
-                        results.poseLandmarks[
-                            mpHolistic.POSE_LANDMARKS.RIGHT_ELBOW
-                        ],
-                        results.rightHandLandmarks[0],
-                    ],
-                ]);
-            }
-            if (results.leftHandLandmarks) {
-                canvasCtx.strokeStyle = "white";
-                connect(canvasCtx, [
-                    [
-                        results.poseLandmarks[
-                            mpHolistic.POSE_LANDMARKS.LEFT_ELBOW
-                        ],
-                        results.leftHandLandmarks[0],
-                    ],
-                ]);
-            }
-        }
-
-        // Pose...
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.poseLandmarks,
-            mpHolistic.POSE_CONNECTIONS,
-            { color: "white" }
-        );
-        drawingUtils.drawLandmarks(
-            canvasCtx,
-            Object.values(mpHolistic.POSE_LANDMARKS_LEFT).map(
-                (index) => results.poseLandmarks[index]
-            ),
-            { visibilityMin: 0.65, color: "white", fillColor: "rgb(255,138,0)" }
-        );
-        drawingUtils.drawLandmarks(
-            canvasCtx,
-            Object.values(mpHolistic.POSE_LANDMARKS_RIGHT).map(
-                (index) => results.poseLandmarks[index]
-            ),
-            { visibilityMin: 0.65, color: "white", fillColor: "rgb(0,217,231)" }
-        );
-
-        // Hands...
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.rightHandLandmarks,
-            mpHolistic.HAND_CONNECTIONS,
-            { color: "white" }
-        );
-        drawingUtils.drawLandmarks(canvasCtx, results.rightHandLandmarks, {
-            color: "white",
-            fillColor: "rgb(0,217,231)",
-            lineWidth: 2,
-            radius: (data: drawingUtils.Data) => {
-                return drawingUtils.lerp(data.from!.z!, -0.15, 0.1, 10, 1);
-            },
-        });
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.leftHandLandmarks,
-            mpHolistic.HAND_CONNECTIONS,
-            { color: "white" }
-        );
-        drawingUtils.drawLandmarks(canvasCtx, results.leftHandLandmarks, {
-            color: "white",
-            fillColor: "rgb(255,138,0)",
-            lineWidth: 2,
-            radius: (data: drawingUtils.Data) => {
-                return drawingUtils.lerp(data.from!.z!, -0.15, 0.1, 10, 1);
-            },
-        });
-
-        // Face...
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_TESSELATION,
-            { color: "#C0C0C070", lineWidth: 1 }
-        );
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_RIGHT_EYE,
-            { color: "rgb(0,217,231)" }
-        );
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_RIGHT_EYEBROW,
-            { color: "rgb(0,217,231)" }
-        );
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_LEFT_EYE,
-            { color: "rgb(255,138,0)" }
-        );
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_LEFT_EYEBROW,
-            { color: "rgb(255,138,0)" }
-        );
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_FACE_OVAL,
-            { color: "#E0E0E0", lineWidth: 5 }
-        );
-        drawingUtils.drawConnectors(
-            canvasCtx,
-            results.faceLandmarks,
-            mpHolistic.FACEMESH_LIPS,
-            { color: "#E0E0E0", lineWidth: 5 }
-        );
-
-        canvasCtx.restore();
     };
 }
 
