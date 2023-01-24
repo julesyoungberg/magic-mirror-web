@@ -168,7 +168,7 @@ function generateGeometryFromAnnotations(
     geometry.setAttribute(
         "uv",
         new THREE.BufferAttribute(
-            new Float32Array(maskPoints.map((p) => [p[0], p[1]]).flat()),
+            new Float32Array(maskPoints.map((p) => [1.0 - p[0], p[1]]).flat()),
             2
         )
     );
@@ -184,7 +184,9 @@ function loadFilter(filter: Filter) {
         filter.height
     );
     const loader = new THREE.TextureLoader();
-    const filterTexture = loader.load(filter.path);
+    const filterTexture = loader.load(
+        filter.path // "https://threejs.org/examples/textures/uv_grid_opengl.jpg"
+    ); //filter.path);
     return { filterGeometry, filterTexture };
 }
 
@@ -239,7 +241,7 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
     const { filterGeometry, filterTexture } = loadFilter(FILTERS.skeleton);
     const filterMesh = new THREE.Mesh(
         filterGeometry,
-        new THREE.MeshLambertMaterial({ color: "purple", map: filterTexture }) // , wireframe: true })
+        new THREE.MeshBasicMaterial({ map: filterTexture }) // , wireframe: true })
     );
     scene.add(filterMesh);
     // filterMesh.geometry.attributes.position.needsUpdate = true;
