@@ -154,6 +154,7 @@ function generateGeometryFromAnnotations(
         1.0 - p[1] / maskHeight,
     ]);
     const maskDelaunay = Delaunator.from(maskPoints);
+    console.log(maskDelaunay);
     const mask3DPoints = maskPoints.map(
         (p) => new THREE.Vector3(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, -0.1)
     );
