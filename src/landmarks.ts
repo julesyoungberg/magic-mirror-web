@@ -1,11 +1,12 @@
 // https://github.com/google/mediapipe/blob/a908d668c730da128dfa8d9f6bd25d519d006692/mediapipe/modules/face_geometry/data/canonical_face_model_uv_visualization.png
 export const FACE_MESH_POINTS = [
     // Outer lips
-    // 61, 91, 84, 314, 321, 291, 270, 267, 37, 40,
+    61, 91, 84, 314, 321, 291, 270, 267, 37, 40,
+    // 40, 37, 267, 270, 291, 321, 314, 84, 91, 61,
     // Inner lips
     // 78, 88, 87, 317, 318, 308, 310, 312, 82, 80,
     // Nose
-    // 197, 5, 1, 48, 237, 457, 278,
+    197, 5, 1, 48, 237, 457, 278,
     // Left Outer Eye
     463, 286, 257, 260, 359, 339, 253, 256,
     // Left Inner Eye
