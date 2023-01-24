@@ -242,7 +242,13 @@ async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
     const { filterGeometry, filterTexture } = loadFilter(FILTERS.skeleton);
     const filterMesh = new THREE.Mesh(
         filterGeometry,
-        new THREE.MeshBasicMaterial({ map: filterTexture }) // , wireframe: true })
+        new THREE.MeshBasicMaterial({
+            map: filterTexture,
+            alphaMap: filterTexture,
+            transparent: true,
+            opacity: 0.6,
+            // blending: THREE.AdditiveBlending,
+        })
     );
     scene.add(filterMesh);
     // filterMesh.geometry.attributes.position.needsUpdate = true;
