@@ -240,7 +240,7 @@ class HolisticFilter {
     renderer: THREE.WebGLRenderer;
     filterMesh: THREE.Mesh;
     uniforms: HolisticUniforms;
-    prevFacePoints?: THREE.Vector3[];
+    prevPoints?: cv.Mat;
     prevImageGray?: cv.Mat;
 
     constructor(
@@ -292,28 +292,34 @@ class HolisticFilter {
         // const imgGray = imgMat.clone();
         // cv.cvtColor(imgMat, imgGray, cv.COLOR_BGR2GRAY);
 
-        // if (!this.prevFacePoints) {
-        //     this.prevFacePoints = facePoints;
-        // }
+        // const pointsMat = cv.matFromArray(
+        //     facePoints.length,
+        //     3,
+        //     cv.CV_32F,
+        //     facePoints.map((p) => p.toArray()).flat()
+        // );
 
-        // if (!this.prevImageGray) {
-        //     this.prevImageGray = imgGray;
+        // if (!(this.prevPoints && this.prevImageGray)) {
+        //     return;
         // }
 
         // const facePointsNext = cv.calcOpticalFlowPyrLK(
         //     this.prevImageGray,
         //     imgGray,
-        //     this.prevFacePoints,
-        //     facePoints,
+        //     this.prevPoints,
+        //     pointsMat,
         //     imgGray.clone(),
         //     imgGray.clone(),
-        //     [101, 101],
+        //     new cv.Size(101, 101),
         //     15,
-        //     [cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 20, 0.001]
+        //     cv.TermCriteria_EPS // cv.TermCriteria_COUNT // 20, 0.001]
         // );
 
-        this.prevFacePoints = facePoints;
-        // this.prevImageGray = imgGray;
+        // Final landmark points are a weighted average of detected landmarks and tracked landmarks
+        // @todo
+
+        this.prevPoints = pointsMat;
+        this.prevImageGray = imgGray;
 
         return facePoints;
     };
