@@ -1,6 +1,7 @@
 // based on: https://codepen.io/mediapipe/pen/LYRRYEw
 import * as cameraUtils from "@mediapipe/camera_utils";
 import * as mpHolistic from "@mediapipe/holistic";
+import cv from "@techstark/opencv-js";
 import Delaunator from "delaunator";
 import * as THREE from "three";
 
@@ -233,65 +234,117 @@ function getHolisticParticles(results: mpHolistic.Results) {
     return particles;
 }
 
-async function makeOnResults3D(canvasElement: HTMLCanvasElement) {
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const scene = new THREE.Scene();
-    const renderer = new THREE.WebGLRenderer({ canvas: canvasElement });
-    // renderer.setPixelRatio(window.devicePixelRatio);
+class HolisticFilter {
+    camera: THREE.OrthographicCamera;
+    scene: THREE.Scene;
+    renderer: THREE.WebGLRenderer;
+    filterMesh: THREE.Mesh;
+    uniforms: HolisticUniforms;
+    prevFacePoints?: THREE.Vector3[];
+    prevImageGray?: cv.Mat;
 
-    const { filterGeometry, filterTexture } = loadFilter(FILTERS.skeleton);
-    const filterMesh = new THREE.Mesh(
-        filterGeometry,
-        new THREE.MeshBasicMaterial({
-            map: filterTexture,
-            alphaMap: filterTexture,
-            transparent: true,
-            opacity: 0.6,
-            // blending: THREE.AdditiveBlending,
-        })
-    );
-    scene.add(filterMesh);
-    // filterMesh.geometry.attributes.position.needsUpdate = true;
-    scene.add(createPointsCloud(filterGeometry));
+    constructor(
+        readonly canvasElement: HTMLCanvasElement,
+        readonly videoElement: HTMLVideoElement
+    ) {
+        this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        this.scene = new THREE.Scene();
+        this.renderer = new THREE.WebGLRenderer({ canvas: canvasElement });
+        // renderer.setPixelRatio(window.devicePixelRatio);
 
-    const planeGeometry = new THREE.PlaneGeometry(2, 2);
-    const canvasTexture = new THREE.CanvasTexture(canvasElement);
-    const uniforms = new HolisticUniforms(canvasTexture); // filterTexture);
-    const material = new THREE.ShaderMaterial({
-        uniforms: uniforms.getData(),
-        vertexShader,
-        fragmentShader,
-    });
-    const mesh = new THREE.Mesh(planeGeometry, material);
-    scene.add(mesh);
+        const { filterGeometry, filterTexture } = loadFilter(FILTERS.skeleton);
+        this.filterMesh = new THREE.Mesh(
+            filterGeometry,
+            new THREE.MeshBasicMaterial({
+                map: filterTexture,
+                alphaMap: filterTexture,
+                transparent: true,
+                opacity: 0.6,
+                // blending: THREE.AdditiveBlending,
+            })
+        );
+        this.scene.add(this.filterMesh);
+        // filterMesh.geometry.attributes.position.needsUpdate = true;
+        this.scene.add(createPointsCloud(filterGeometry));
 
-    return (results: mpHolistic.Results) => {
+        const planeGeometry = new THREE.PlaneGeometry(2, 2);
+        const canvasTexture = new THREE.CanvasTexture(canvasElement);
+        this.uniforms = new HolisticUniforms(canvasTexture); // filterTexture);
+        const material = new THREE.ShaderMaterial({
+            uniforms: this.uniforms.getData(),
+            vertexShader,
+            fragmentShader,
+        });
+        const mesh = new THREE.Mesh(planeGeometry, material);
+        this.scene.add(mesh);
+    }
+
+    getPoints = (results: mpHolistic.Results) => {
+        if (!results.faceLandmarks) {
+            return undefined;
+        }
+
+        const allFacePoints = preparePoints(results.faceLandmarks);
+        const facePoints = FACE_MESH_POINTS.map((p) => allFacePoints[p]);
+
+        // @todo optical flow
+        // const imgMat = cv.imread(this.videoElement);
+        // const imgGray = imgMat.clone();
+        // cv.cvtColor(imgMat, imgGray, cv.COLOR_BGR2GRAY);
+
+        // if (!this.prevFacePoints) {
+        //     this.prevFacePoints = facePoints;
+        // }
+
+        // if (!this.prevImageGray) {
+        //     this.prevImageGray = imgGray;
+        // }
+
+        // const facePointsNext = cv.calcOpticalFlowPyrLK(
+        //     this.prevImageGray,
+        //     imgGray,
+        //     this.prevFacePoints,
+        //     facePoints,
+        //     imgGray.clone(),
+        //     imgGray.clone(),
+        //     [101, 101],
+        //     15,
+        //     [cv.TermCriteria_EPS | cv.TermCriteria_COUNT, 20, 0.001]
+        // );
+
+        this.prevFacePoints = facePoints;
+        // this.prevImageGray = imgGray;
+
+        return facePoints;
+    };
+
+    onResults = (results: mpHolistic.Results) => {
         document.body.classList.add("loaded");
 
         // Remove landmarks we don't want to draw.
         removeLandmarks(results);
+        this.uniforms.update(results);
 
-        uniforms.update(results);
-
-        if (results.faceLandmarks) {
-            const allFacePoints = preparePoints(results.faceLandmarks);
-            const facePoints = FACE_MESH_POINTS.map((p) => allFacePoints[p]);
-            facePoints.forEach((p, i) =>
-                p.toArray(filterMesh.geometry.attributes.position.array, i * 3)
-            );
-
-            filterMesh.geometry.attributes.position.needsUpdate = true;
-            // filterMesh.geometry.computeVertexNormals();
-            // filterMesh.geometry.computeBoundingBox();
-            // filterMesh.geometry.computeBoundingSphere();
+        const facePoints = this.getPoints(results);
+        if (!facePoints) {
+            return;
         }
+
+        facePoints.forEach((p, i) =>
+            p.toArray(this.filterMesh.geometry.attributes.position.array, i * 3)
+        );
+
+        this.filterMesh.geometry.attributes.position.needsUpdate = true;
+        // filterMesh.geometry.computeVertexNormals();
+        // filterMesh.geometry.computeBoundingBox();
+        // filterMesh.geometry.computeBoundingSphere();
 
         // const particles = getHolisticParticles(results);
         // if (particles) {
         //     scene.add(particles);
         // }
 
-        renderer.render(scene, camera);
+        this.renderer.render(this.scene, this.camera);
 
         // if (particles) {
         //     scene.remove(particles);
@@ -315,7 +368,9 @@ export async function startHolisticDetector(
         minTrackingConfidence: 0.5,
     });
 
-    holistic.onResults(await makeOnResults3D(canvasElement));
+    const holisticFilter = new HolisticFilter(canvasElement, videoElement);
+
+    holistic.onResults(holisticFilter.onResults);
 
     const camera = new cameraUtils.Camera(videoElement, {
         onFrame: async () => {

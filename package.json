@@ -13,6 +13,7 @@
     "@mediapipe/camera_utils": "^0.3.1640029074",
     "@mediapipe/drawing_utils": "^0.3.1620248257",
     "@mediapipe/holistic": "^0.5.1635989137",
+    "@techstark/opencv-js": "^4.6.0-release.1",
     "delaunator": "^5.0.0",
     "device-detector-js": "^3.0.3",
     "react": "^18.2.0",
